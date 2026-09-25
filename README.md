@@ -61,8 +61,7 @@ scripts/build_seed_catalog.py  regenerates assets/products.json
 | | |
 |---|---|
 | Products | 22 |
-| With a photo | 9 |
-| Awaiting a photo | 13 |
+| With a photo | 22 |
 | Categories | Apparel 8, Travel 11, Drinkware 2, Utilities 1 |
 
 Source of truth is the sheet:
@@ -75,59 +74,59 @@ Script is deployed and still renders if the feed is ever down. Once
 `CONFIG.FEED_URL` is set the live feed takes over. Refresh the snapshot with
 `python3 scripts/build_seed_catalog.py`.
 
-### Images are matched by name, and 13 products have none
-
-The sheet's `Image URL` column is empty, so photos are matched to products by
-filename against the
-[Drive folder](https://drive.google.com/drive/folders/1Bt-GO4kah47SWFxs0vU7fUg82JWW9W7m).
-Two signals, weighted by how rare each word is across the folder: shared
-distinctive words, and compressed-name containment (this is the only thing
-joining `fit-pack.jpg` to `Fitpack V2`). Generic words — `polo`, `tumbler`,
-`black` — count for less and can never carry a match alone, and each file goes
-to at most one product.
-
-These nine are matched and correct:
-
-| Product | File |
-|---|---|
-| ET-TU Metro Drifit polo - Black | `Metro-polo-.jpg` |
-| ET-TU Galactic Drifit polo - Grey | `Galactic-Polo---Moss-Green-Heather-.jpg` |
-| ET-TU Recycled Numa Hoodie - Black | `Numa-hoodie---Black-Heather-.jpg` |
-| ET-TU Recycled Full zip classic hoodie - Black | `Classic-no-zip-hoodie---Black.jpg` |
-| ET-TU Full Zip Swag Jacket - Black | `Swag-black.jpg` |
-| ET-TU Vector Vest | `Vector-Vest-.jpg` |
-| Fitpack V2 | `fit-pack.jpg` |
-| Cascade Mug Alternative | `HydroMonk-Cascade---40-0z-Tumbler.jpg` |
-| Cork Notebook | `cork.jpg` |
-
-**Two of those need a human eye:**
-
-* *Recycled Full zip classic hoodie* is wearing `Classic-no-zip-hoodie`. The
-  filename says **no**-zip, the product is **full**-zip. Closest file in the
-  folder, and no matcher can tell these apart from strings.
-* *Galactic Drifit polo - Grey* is wearing `Moss-Green-Heather`. Right style,
-  possibly the wrong colourway.
-
-**Thirteen products have no photo in the folder at all:** ET-TU Summer Tech
-Polo Women's, all eight travelXOXO bags (tote, trunk organiser, cabin harness,
-Expedia sling, bottle carrier, Saba sling, sports sling, Basecamp duffle),
-Transit backpack, Limited Edition Backpack, Himalayan Tumbler, OMG Twill Cap.
-They render an "Image coming soon" placeholder.
-
-Meanwhile **20 files in the folder match no product** — Adidas and ASICS tees
-and jackets, journals, memo pads, `Crema-polo`, `BKC`, `Cooler`, `bonded`,
-`Canvas-tote`, `Classic-Peaklayer-Quarter-zip`. Either they belong to products
-missing from the sheet, or the 22 rows are only part of the intended range.
-**Worth resolving before go-live.**
-
-To audit the matching against the real photographs, run `reviewImageMatches()`
-from the Apps Script editor: it writes an `ImageMatchReview` tab with every
-product, the file chosen, the score, what it matched on and the runner-up.
-Correct anything wrong by putting a URL in the sheet's own `Image URL` column —
-that always beats the matcher — then `applyImageMatches()` makes the approved
-ones permanent.
-
 ---
+
+## Images
+
+Every product now has a photo, taken from the sheet's **`Thumbnail URL`**
+column. The name-matcher described below is only consulted for rows that
+leave that column blank — there are currently none.
+
+### The column name is read loosely, on purpose
+
+That column has been called both `Image URL` and `Thumbnail URL`. Looking for
+one exact name meant a rename silently turned every image off: the feed found
+no column, quietly fell through to name-matching, and looked like it was just
+matching badly. `imageCol_()` accepts either, and `healthCheck()` prints which
+one it found.
+
+### Drive URLs are normalised
+
+The sheet stores `uc?export=view&id=...`. That form is the worst of Drive's
+several URL shapes for a storefront — Google rate-limits it, serves an HTML
+interstitial for larger files, and always returns the **full-size original**.
+
+`driveThumb_()` rewrites every Drive URL to `thumbnail?id=...&sz=w1000`, which
+`imgAt()` in `app.js` then re-sizes per context. Measured on one of these
+photos: **9.5 KB** for a 400px card against the ~1 MB original. Non-Drive URLs
+pass through untouched, so a CDN path in that column still works.
+
+### Two things to check
+
+* **The Numa Hoodie and the Full-zip classic hoodie share one photo.** Rows 3
+  and 4 carry the same file id, and that file is titled *"ET-TU Recycled Full
+  zip classic hoodie - Black"* in Drive — so the Numa Hoodie is showing the
+  wrong garment. Left exactly as the sheet has it, so this snapshot and the
+  live feed agree; the fix is one cell in the sheet, not a patch in the code.
+  `healthCheck()` reports any photo used by more than one product.
+* **Rows 19–22 were not read from the sheet.** The descriptions grew long
+  enough that the sheet reader truncated at row 18, so the ids for Himalayan
+  Tumbler, Cascade Mug, OMG Twill Cap and Cork Notebook were resolved by
+  looking those products up by name in Drive instead. They are marked
+  `image_source: "drive-lookup"` in `products.json`. This only affects the
+  offline snapshot — once deployed, the feed reads all rows directly.
+
+### The name-matcher (fallback)
+
+For any row with no `Thumbnail URL`, photos are matched by filename against
+the [Drive folder](https://drive.google.com/drive/folders/1Bt-GO4kah47SWFxs0vU7fUg82JWW9W7m):
+weighted word overlap plus compressed-name containment (the only thing joining
+`fit-pack.jpg` to `Fitpack V2`). Generic words — `polo`, `tumbler`, `black` —
+count for less and can never carry a match alone, and each file goes to at
+most one product. On this catalogue it scored 9 of 22 with no false positives.
+
+`reviewImageMatches()` writes every decision to an `ImageMatchReview` tab;
+`applyImageMatches()` commits the approved ones into the sheet.
 
 ## Brand
 
@@ -167,8 +166,8 @@ artwork. See `assets/brand/README.md` before go-live.
    how many have photos, names every product that has none, and fails loudly
    if any product somehow carries a price.
 5. Run `reviewImageMatches()` and check the `ImageMatchReview` tab.
-6. **Share the Drive image folder as "Anyone with the link — Viewer."**
-   Without this the thumbnails are broken for everyone but you.
+6. The Drive image folder must be shared **"Anyone with the link — Viewer."**
+   Verified already done — the thumbnails fetch anonymously as real JPEGs.
 7. **Deploy → New deployment → Web app.** Execute as **Me**, access
    **Anyone**. Copy the `/exec` URL.
 
@@ -243,11 +242,13 @@ holder), and the "Cabin Luggage Harness & Backpack" became a trolley bag.
 
 ## Still open
 
-1. **Photos for 13 of 22 products**, and an explanation for the 20 unmatched
-   files in the Drive folder. The biggest gap.
-2. **The full-zip / no-zip hoodie photo** and the Galactic polo colourway.
-3. **Official Wells Fargo vector logo artwork** to replace the banner crops.
-4. Confirmation that 22 rows is the whole catalogue — the Drive folder's
-   contents suggest more products were intended.
+1. **The Numa Hoodie's photo** — rows 3 and 4 of the sheet share one file,
+   and it is the full-zip hoodie's. One cell to fix.
+2. **Official Wells Fargo vector logo artwork** to replace the banner crops
+   (`assets/brand/README.md`).
+3. **Convert the hero to WebP.** It is 1.5 MB of JPEG on the home page's
+   critical path.
+4. Confirmation that 22 rows is the whole catalogue. The Drive folder still
+   holds Adidas and ASICS apparel, journals and memo pads that match no row.
 5. Who receives the Kit Requests, and whether they should be emailed rather
    than left in a tab.

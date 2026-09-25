@@ -91,6 +91,36 @@ function colMap_(header) {
   };
 }
 
+/* The image column has been called both "Image URL" and "Thumbnail URL" in
+   this sheet's short life. Looking for one exact name meant a rename silently
+   turned every image off — the feed found no column, fell through to the name
+   matcher, and looked like it was merely matching badly. Both names are
+   accepted, and healthCheck() says which one it found. */
+function imageCol_(C) {
+  var i = C('thumbnail url');
+  if (i < 0) i = C('image url');
+  return i;
+}
+
+/* Drive hands out several URL shapes for the same file and the sheet is
+   currently full of the `uc?export=view` one. That form is the worst of them
+   for a storefront: Google rate-limits it, serves an HTML interstitial for
+   larger files, and always returns the full-size original — so a 1 MB photo
+   gets pulled for a 400px card.
+
+   Everything is normalised to `thumbnail?id=<id>&sz=w1000`, which is the form
+   imgAt() in app.js knows how to re-size per context. Anything that is not a
+   recognised Drive URL passes through untouched, so a CDN or a relative path
+   in that column still works. */
+function driveThumb_(url) {
+  var u = String(url || '').trim();
+  if (!u) return '';
+  if (u.indexOf('drive.google.com') < 0) return u;
+  var m = /\/file\/d\/([A-Za-z0-9_-]{10,})/.exec(u) || /[?&]id=([A-Za-z0-9_-]{10,})/.exec(u);
+  if (!m) return u;
+  return 'https://drive.google.com/thumbnail?id=' + m[1] + '&sz=w1000';
+}
+
 /* The sheet was exported from a system that left literal "&#13;" (an HTML
    carriage-return entity) inside several product names and descriptions —
    "travelXOXO Saba Sling&#13;". Left alone it renders as visible junk on the
@@ -383,7 +413,7 @@ function buildCatalog_() {
      top of this file before adding any of them back. */
   var ci = {
     name: C('product name'), brand: C('brand'), desc: C('description'),
-    gender: C('style(gender)'), sr: C('sr no'), img: C('image url'),
+    gender: C('style(gender)'), sr: C('sr no'), img: imageCol_(C),
     lead: C('leadtime for moq'), parentSku: C('sku codes - parent'),
     topSelling: C('top selling'), sustainable: C('sustainable'),
   };
@@ -397,7 +427,7 @@ function buildCatalog_() {
     var row = vals[r];
     var name = clean_(row[ci.name]);
     if (!name) continue;
-    var sheetImg = ci.img >= 0 ? clean_(row[ci.img]) : '';
+    var sheetImg = ci.img >= 0 ? driveThumb_(clean_(row[ci.img])) : '';
     if (!sheetImg) needImage.push(name);
     rows.push({ row: row, r: r, name: name, sheetImg: sheetImg });
   }
@@ -540,7 +570,7 @@ function reviewImageMatches() {
   var sh = ss.getSheetByName(CFG.CATALOG_SHEET) || ss.getSheets()[0];
   var vals = sh.getDataRange().getValues();
   var C = colMap_(vals[0]);
-  var nameCol = C('product name'), imgCol = C('image url');
+  var nameCol = C('product name'), imgCol = imageCol_(C);
 
   var rows = [];
   for (var r = 1; r < vals.length; r++) {
@@ -616,8 +646,8 @@ function applyImageMatches() {
 
   var sh = ss.getSheetByName(CFG.CATALOG_SHEET) || ss.getSheets()[0];
   var C = colMap_(sh.getDataRange().getValues()[0]);
-  var imgCol = C('image url');
-  if (imgCol < 0) throw new Error('applyImageMatches: no "Image URL" column in "' + CFG.CATALOG_SHEET + '"');
+  var imgCol = imageCol_(C);
+  if (imgCol < 0) throw new Error('applyImageMatches: no "Thumbnail URL" or "Image URL" column in "' + CFG.CATALOG_SHEET + '"');
 
   var wrote = 0, skipped = 0;
   for (var i = 1; i < rvals.length; i++) {
@@ -642,8 +672,27 @@ function healthCheck() {
   var d = buildCatalog_();
   var noImage = d.products.filter(function (p) { return !p.image; });
   var priced = d.products.filter(function (p) { return p.base_price || (p.tiers || []).length; });
+  var ss = SpreadsheetApp.getActive();
+  var sh = ss.getSheetByName(CFG.CATALOG_SHEET) || ss.getSheets()[0];
+  var C = colMap_(sh.getDataRange().getValues()[0]);
+  var ic = imageCol_(C);
+
+  /* Two products sharing one photo is almost always a copied cell rather than
+     an intentional reuse, and it is invisible until someone opens both pages. */
+  var byImg = {};
+  d.products.forEach(function (p) {
+    if (!p.image) return;
+    (byImg[p.image] || (byImg[p.image] = [])).push(p.name);
+  });
+  var shared = Object.keys(byImg).filter(function (k) { return byImg[k].length > 1; })
+    .map(function (k) { return byImg[k].join(' + '); });
+
   var lines = [
     'products: ' + d.products.length,
+    'image column: ' + (ic < 0 ? '*** NOT FOUND — expected "Thumbnail URL" or "Image URL" ***'
+                               : '"' + sh.getRange(1, ic + 1).getValue() + '"'),
+    shared.length ? '*** ' + shared.length + ' photo(s) used by more than one product: ' +
+      shared.join(' | ') + ' ***' : 'no photo is used twice',
     'categories: ' + d.categories.join(', '),
     'from the sheet\'s Image URL column: ' + d.products.filter(function (p) { return p.image_source === 'sheet'; }).length,
     'auto-matched from Drive: ' + d.products.filter(function (p) { return p.image_source === 'drive-match'; }).length,

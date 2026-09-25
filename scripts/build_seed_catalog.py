@@ -20,20 +20,55 @@ import json, re, os
 
 SHEET = "1oy_PrlNb4tOH48eOKJBBYaJAEZ0h2FBwWDlcsQwAgjE"
 
-# Image IDs verified against the Drive folder on 2026-09-25. Only the matches
-# the name-matcher in Code.gs makes confidently are listed; the other 13
-# products have no usable photo in the folder yet and render the
-# "Image coming soon" placeholder.
+# Drive file ids, taken from the sheet's own "Thumbnail URL" column
+# (read 2026-09-25). That column is now populated and is the source of truth;
+# the name-matcher in Code.gs is only consulted for rows it leaves blank.
+#
+# The sheet stores these as `uc?export=view&id=...`. They are written out
+# below as `thumbnail?id=...&sz=w1000`, which is the same file — see
+# driveThumb_() in apps-script-feed/Code.gs for why that form is used.
+#
+# Rows 1-18 are verbatim from the sheet. Rows 19-22 could NOT be read: the
+# descriptions grew long enough that the sheet reader truncated its response
+# at row 18. Their ids below were resolved by looking the products up by name
+# in the Drive folder and are marked accordingly. Once the Apps Script is
+# deployed the live feed reads all rows directly and supersedes every id here.
 IMG = {
+    # --- rows 1-18, from the sheet's Thumbnail URL column ---
     "ET-TU Metro Drifit polo - Black":                "1U0MFSnATFfUjB-iEQ3qhwm0IGRzz6JMa",
     "ET-TU Galactic Drifit polo - Grey":              "1XC0p-eoOWZEFLKzzQzqNXupwHrvKEXnu",
-    "ET-TU Recycled Numa Hoodie - Black":             "1YFxOsTrNSW27szEXb6H7FBKSFYlvxdEP",
-    "ET-TU Recycled Full zip classic hoodie - Black": "1Jq3s4-nuuvFJa02sC7b1X4ErqVaTZpKX",
+    # NOTE: the sheet gives rows 3 and 4 the SAME file, and that file is
+    # titled "ET-TU Recycled Full zip classic hoodie - Black" in Drive. So the
+    # Numa Hoodie is currently showing the full-zip hoodie's photo. Kept as
+    # the sheet has it, deliberately, so this fallback and the live feed agree
+    # — the fix is one cell in the sheet, not a patch here.
+    "ET-TU Recycled Numa Hoodie - Black":             "1Uwo1uRdd36a5D9vTPGcjwrM2M9DFPGXW",
+    "ET-TU Recycled Full zip classic hoodie - Black": "1Uwo1uRdd36a5D9vTPGcjwrM2M9DFPGXW",
     "ET-TU Full Zip Swag Jacket - Black":             "1gmJF62XoPj0GBUQ_OZQixiwI6Bw_Umai",
     "ET-TU Vector Vest":                              "1Qgwq2zhZSEMz3yqqK69m2uSs3EKRZoWU",
+    "ET-TU Summer Tech Polo Women's":                 "1GfBcXXYdY5gYaggh2cQr7kRF0NNlk1Mk",
+    "travelXOXO ladies Neoprene tote bag":            "14faZA00QTc1cur0i28w0auvtb7oPr2Hh",
+    "travelXOXO Foldable Car Trunk Organiser":        "1c8gGXHeKGimRbcuRGlPCz0UmgkfrFgLx",
+    "travelXOXO Cabin Luggage Harness & Backpack":    "1lPTchpyrbCllTMixML-3-XDXS6OKuh0h",
+    "travelXOXO Expedia Sling":                       "1rhkkZhGPed2SC4K5XjWtHGyXdiVhUiRD",
+    "travelXOXO Bottle Carrier Bag":                  "1sU-RmOLsQWix18k4RMyquhIkKVxTProN",
+    "travelXOXO Saba Sling":                          "1dGcJFJ2qYyLwG68Mi3eSZW7dtA6s3AvB",
+    "travelXOXO Sports Sling":                        "1oCYkKKJYJ794cQ1xRJdeXgvIKiOMBqXH",
+    "travelXOXO Basecamp Duffle Bag 32 Ltr":          "12o2xagpYHkKY4a6qXA90yAEfJBzpbRAH",
+    "Transit backpack":                               "1LPeLDwkFidNKKqjV-JCYIEuqgWf5j8AW",
     "Fitpack V2":                                     "1xsn_rIetuy9OJrdp1x_6BgeG1zw4aBN4",
+    "Limited Edition Backpack":                       "1v2ZJUWe1Xptk-fBfwJRq5fC5B3tMd39Q",
+    # --- rows 19-22, resolved by name in Drive, NOT read from the sheet ---
+    "Himalayan Tumbler Alternative":                  "11T8zuKaAGa5iWb_x_S91kydo9McIvcn2",
     "Cascade Mug Alternative":                        "15aBMA9StZD3OVsion6SylNR4h753XGFJ",
+    "OMG Twill Cap":                                  "11ytBwuN_SNF4oHITwW3QFdOMx996T5Gv",
     "Cork Notebook":                                  "12zRZQVo3L82Tm9tVFm1fzahC5G5T5VNm",
+}
+
+# Rows whose id was inferred rather than read, so the output can say so.
+INFERRED = {
+    "Himalayan Tumbler Alternative", "Cascade Mug Alternative",
+    "OMG Twill Cap", "Cork Notebook",
 }
 
 # (Sr No, Product name, Brand, Style(Gender), Description)
@@ -48,14 +83,14 @@ ROWS = [
  (8,"travelXOXO ladies Neoprene tote bag","travelXOXO","","Made from 600D TPU coated rPET and neoprene using recycled materials. Spacious open cavity fits towels and large beach essentials. Interior water-resistant zippered pocket for organized storage. Versatile carry options with padded grab handles and fixed shoulder straps"),
  (9,"travelXOXO Foldable Car Trunk Organiser","travelXOXO","","Spacious trunk organizer with multiple compartments for efficient storage and organization. Reinforced construction with sturdy base panels ensures enhanced durability and shape retention. Features adjustable dividers to customize storage space according to your needs. Non-slip base and adjustable securing straps keep the organizer firmly in place during travel. Multiple mesh and covered side pockets provide easy access to smaller essentials. Foldable design allows compact storage when not in use and easy portability. Dimensions: 25D x 41W x 55H cm"),
  (10,"travelXOXO Cabin Luggage Harness & Backpack","travelXOXO","","Crafted from high-quality recycled nylon for enhanced durability and sustainability. Functions as both a cabin luggage harness and a convertible backpack for versatile travel. Securely attaches to compatible cabin suitcases using adjustable fastening straps. Hidden, adjustable shoulder straps allow quick conversion into a comfortable backpack. Features multiple compartments for organized storage and easy access to travel essentials. Two spacious zippered pockets accommodate laptops up to 16 inches, documents, magazines, or other daily essentials. Dimensions: 39 x 31 x 9 cm"),
- (11,"travelXOXO Expedia Sling","travelXOXO","","Contemporary sling bag with a compact design and spacious interior for everyday essentials. Flap and zipper closure provide added security for your belongings. Back slip pocket offers quick and easy access to frequently used items. Adjustable shoulder strap ensures a comfortable, customized fit. Water-resistant PU-coated premium polyester construction for enhanced durability. Soft, lightweight design makes it ideal for casual outings, travel, and daily use. Dimensions: 23 cm (L) x 15 cm (H) x 6.5 cm (W)"),
- (12,"travelXOXO Bottle Carrier Bag","travelXOXO","","Crafted from recycled PU with a PEVA-insulated lining for durability and temperature retention. Thermally insulated main compartment helps keep bottles cool for longer. Designed to fit bottles up to 60 oz securely. Sturdy black rope closure keeps the bottle firmly in place. Zippered front pocket provides convenient storage for small essentials such as keys, cards, or cash. Adjustable webbing shoulder strap offers comfortable, hands-free carrying. Lightweight and compact design is ideal for commuting, travel, hiking, and outdoor activities."),
- (13,"travelXOXO Saba Sling","travelXOXO","","Durable hard cotton canvas exterior offers a rugged look and long-lasting performance. Nylon interior lining provides added durability and protects stored belongings. Spacious main compartment accommodates daily essentials with ease. Includes a detachable inner pouch for convenient organization of smaller items. Premium YKK metal zipper ensures smooth operation and reliable closure. Technical nylon webbing handles provide a comfortable and secure grip. Reinforced construction enhances strength for everyday use. Designed for work, travel, shopping, and daily commuting."),
- (14,"travelXOXO Sports Sling","travelXOXO","","Crafted from durable 230D twill polyester with a 240D polyester lining for long-lasting performance. Spacious double-zippered main compartment provides secure storage for daily essentials. Front zippered pocket offers quick access to frequently used items. Front slip pocket adds convenient storage for small accessories. Back zippered pocket features an integrated elastic cup holder for added functionality. Interior slip pocket helps keep valuables and essentials organized. Adjustable padded shoulder sling ensures comfortable carrying throughout the day."),
- (15,"travelXOXO Basecamp Duffle Bag 32 Ltr","travelXOXO","","Inspired by the iconic Base Camp Duffel, designed as a versatile and durable travel companion. 32-litre capacity makes it suitable for day trips, overnight stays and short getaways. Made from reverse material, using 300D recycled polyester tarpaulin with a TPU coating for durability. Water-repellent construction helps protect belongings from light moisture and changing weather conditions. Includes a dedicated water bottle pocket for convenient access while travelling. Dedicated laptop sleeve accommodates laptops up to 16.5 inches. Lightweight design weighs approximately 910 g."),
+ (11,"travelXOXO Expedia Sling","travelXOXO","","Contemporary sling bag with a compact design and spacious interior for everyday essentials. Flap and zipper closure provide added security for your belongings. Back slip pocket offers quick and easy access to frequently used items. Adjustable shoulder strap ensures a comfortable, customized fit. Water-resistant PU-coated premium polyester construction for enhanced durability. Soft, lightweight design makes it ideal for casual outings, travel, and daily use. Dimensions: 23 cm (L) x 15 cm (H) x 6.5 cm (W). Weight: 247 g."),
+ (12,"travelXOXO Bottle Carrier Bag","travelXOXO","","Crafted from recycled PU with a PEVA-insulated lining for durability and temperature retention. Thermally insulated main compartment helps keep bottles cool for longer. Designed to fit bottles up to 60 oz securely. Sturdy black rope closure keeps the bottle firmly in place. Zippered front pocket provides convenient storage for small essentials such as keys, cards, or cash. Adjustable webbing shoulder strap offers comfortable, hands-free carrying. Lightweight and compact design is ideal for commuting, travel, hiking, and outdoor activities. Includes a QR code inside that links to a Digital Product Passport. Reusable, eco-conscious design made with recycled materials."),
+ (13,"travelXOXO Saba Sling","travelXOXO","","Durable hard cotton canvas exterior offers a rugged look and long-lasting performance. Nylon interior lining provides added durability and protects stored belongings. Spacious main compartment accommodates daily essentials with ease. Includes a detachable inner pouch for convenient organization of smaller items. Premium YKK metal zipper ensures smooth operation and reliable closure. Technical nylon webbing handles provide a comfortable and secure grip. Reinforced construction enhances strength for everyday use. Designed for work, travel, shopping, and daily commuting. Bag dimensions: 45 x 13 x 33.5 cm."),
+ (14,"travelXOXO Sports Sling","travelXOXO","","Crafted from durable 230D twill polyester with a 240D polyester lining for long-lasting performance. Spacious double-zippered main compartment provides secure storage for daily essentials. Front zippered pocket offers quick access to frequently used items. Front slip pocket adds convenient storage for small accessories. Back zippered pocket features an integrated elastic cup holder for added functionality. Interior slip pocket helps keep valuables and essentials organized. Adjustable padded shoulder sling ensures comfortable carrying throughout the day. Material: Polyester."),
+ (15,"travelXOXO Basecamp Duffle Bag 32 Ltr","travelXOXO","","Inspired by the iconic Base Camp Duffel, designed as a versatile and durable travel companion. 32-litre capacity makes it suitable for day trips, overnight stays and short getaways. Made from reverse material, using 300D recycled polyester tarpaulin with a TPU coating for durability. Water-repellent construction helps protect belongings from light moisture and changing weather conditions. Includes a dedicated water bottle pocket for convenient access while travelling. Dedicated laptop sleeve accommodates laptops up to 16.5 inches. Lightweight design weighs approximately 910 g. Dimensions: 57.6 x 35 x 22 cm."),
  (16,"Transit backpack","travelXOXO","","Comes with 2 padded laptop pockets for secure storage. Includes 7 open pockets for storage and card organization. Features a dedicated 15 inch laptop compartment. Extra shoulder pads enhance carrying comfort. Adjustable shoulder straps offer a personalized fit. Dimensions: 18.5H x 12.5W x 8.5D cm"),
- (17,"Fitpack V2","travelXOXO","","Crafted from premium 1680D Cordura ballistic nylon for exceptional durability and abrasion resistance. High-quality YKK zippers and Duraflex hardware ensure reliable, long-lasting performance. Antimicrobial interior lining helps reduce bacterial growth and control odors. Spacious front-loading main compartment provides easy access and efficient organization. Dedicated ventilated shoe compartment. Suspended, padded laptop compartment with soft lining securely fits laptops up to 16 inches. Quick-access top pocket keeps frequently used essentials to hand."),
- (18,"Limited Edition Backpack","travelXOXO","","Crafted from premium 1680D Cordura ballistic nylon for exceptional durability and abrasion resistance. High-quality YKK zippers and Duraflex hardware ensure reliable, long-lasting performance. Antimicrobial interior lining helps reduce bacterial growth and control odors. Spacious front-loading main compartment provides easy access and efficient organization. Dedicated ventilated shoe compartment. Suspended, padded laptop compartment with soft lining securely fits laptops up to 16 inches. Quick-access top pocket keeps frequently used essentials to hand."),
+ (17,"Fitpack V2","travelXOXO","","Crafted from premium 1680D Cordura ballistic nylon for exceptional durability and abrasion resistance. High-quality YKK zippers and Duraflex hardware ensure reliable, long-lasting performance. Antimicrobial interior lining helps reduce bacterial growth and control odors. Spacious front-loading main compartment provides easy access and efficient organization. Dedicated ventilated shoe compartment. Suspended, padded laptop compartment with soft lining securely fits laptops up to 16 inches. Quick-access top pocket keeps frequently used essentials to hand. Dimensions: 17.5 in (L) x 12.5 in (W) x 8 in (D)."),
+ (18,"Limited Edition Backpack","travelXOXO","","Crafted from premium 1680D Cordura ballistic nylon for exceptional durability and abrasion resistance. High-quality YKK zippers and Duraflex hardware ensure reliable, long-lasting performance. Antimicrobial interior lining helps reduce bacterial growth and control odors. Spacious front-loading main compartment provides easy access and efficient organization. Dedicated ventilated shoe compartment. Suspended, padded laptop compartment with soft lining securely fits laptops up to 16 inches. Quick-access top pocket keeps frequently used essentials to hand. Dimensions: 17.5 in (L) x 12.5 in (W) x 8 in (D)."),
  (19,"Himalayan Tumbler Alternative","HydroMonk","","304 stainless steel. After filling with a cold beverage, the tumbler keeps it cold. Premium quality stainless steel keeps drinks contained and prevents heat or cold from escaping. Double-wall vacuum insulation protects your hot or cold beverage. Dimensions: 470 x 470 x 200 mm"),
  (20,"Cascade Mug Alternative","HydroMonk","","Made from 90% recycled 18/8 stainless steel, BPA-free. Double-wall vacuum insulation with powder coat finish. Includes reusable straw and comfort-grip handle. Car cup holder compatible (base diameter 3.1 inches). Dishwasher safe for easy cleaning"),
  (21,"OMG Twill Cap","OMG","","The 6 panel cap comes with neat stitching, high quality cotton fabric and an adjustable strapback. Our popular structured 100% cotton twill cap. This value-priced style has a high profile and plenty of colours to uniform the team. Available in a variety of colours. An ideal promotional gift for any outdoor event, with branding options available. Closure: hook and loop."),
@@ -153,7 +188,7 @@ def main():
             "moq": 0, "gst_rate": 0, "tiers": [], "base_price": 0,
             "sizes": ["OS"], "has_sizes": False,
             "image": f"https://drive.google.com/thumbnail?id={fid}&sz=w1000" if fid else "",
-            "image_source": "drive-match" if fid else "none",
+            "image_source": ("drive-lookup" if name in INFERRED else "sheet") if fid else "none",
             "active": True, "related": [], "event_tags": [],
             "top_selling": False,
             "sustainable": bool(re.search(r"sustainab|recycled|eco-?friendly|rpet", desc, re.I)),
@@ -175,8 +210,18 @@ def main():
         json.dump(out, f, indent=1, ensure_ascii=False)
 
     withimg = sum(1 for p in products if p["image"])
-    print(f"wrote {len(products)} products, {withimg} with a photo, "
-          f"{len(products) - withimg} awaiting one")
+    from_sheet = sum(1 for p in products if p["image_source"] == "sheet")
+    inferred = sum(1 for p in products if p["image_source"] == "drive-lookup")
+    print(f"wrote {len(products)} products, {withimg} with a photo "
+          f"({from_sheet} from the sheet, {inferred} looked up by name), "
+          f"{len(products) - withimg} without")
+    seen = {}
+    for p in products:
+        if p["image"]:
+            seen.setdefault(p["image"], []).append(p["name"])
+    for names in seen.values():
+        if len(names) > 1:
+            print("  WARNING shared photo: " + " + ".join(names))
     for c in out["categories"]:
         print(f"  {c}: {sum(1 for p in products if p['category'] == c)}")
 
