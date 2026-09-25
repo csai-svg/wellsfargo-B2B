@@ -1,0 +1,20 @@
+{
+  "settings": {
+    "site_name": "Wells Fargo Merchandise Store",
+    "logo_url": "assets/brand/logo.png",
+    "logo_white_url": "assets/brand/logo-white.png",
+    "hero_title": "Wells Fargo branded merchandise",
+    "hero_subtitle": "Browse the catalogue and build a request — no sign-in needed.",
+    "footer_note": "Wells Fargo branded merchandise store — a view-only catalogue.",
+    "support_email": "helpdesk@companystore.io"
+  },
+  "banners": [
+    {
+      "title": "Welcome to the Wells Fargo Store",
+      "subtitle": "Apparel, drinkware, travel and more",
+      "image_url": "assets/brand/hero-wellsfargo.jpg",
+      "link_url": "all.html"
+    }
+  ],
+  "departments": []
+}

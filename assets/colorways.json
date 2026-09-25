@@ -1,0 +1,4 @@
+{
+  "_note": "Colourway groups collapse several SKUs of the same style into ONE listing card, with swatches on the product page. Empty for Wells Fargo: the 22-row catalogue has no repeated styles in different colours yet. Add groups here rather than editing the sheet — this file survives an Apps Script republish.",
+  "groups": []
+}

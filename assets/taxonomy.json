@@ -1,0 +1,3 @@
+{
+  "_note": "Per-SKU category overrides, keyed by the WF#### SKU the feed generates. Empty by design: Deloitte's CS#### map was deliberately NOT carried over — it keys on SKUs that do not exist in this catalogue and would have silently matched nothing. Add an entry here only to overrule classify_() in apps-script-feed/Code.gs for one product, e.g. \"WF0016\": { \"category\": \"Travel\", \"subcategory\": \"Backpack\" }."
+}
