@@ -7,12 +7,11 @@
    zero and nothing renders it. Do not re-add money to a template without
    also changing the feed — a price of ₹0.00 on a card reads as "free". */
 
-const CONFIG = { https://script.google.com/macros/s/AKfycby7wry_8KHpl7RHcyGEAt5wM_TrF6pAjbOfl2OcxNvIcZSM9bg3YU6IPLfZKQtsWKeI8w/exec
+const CONFIG = {
   // Apps Script Web App /exec URL (apps-script-feed/Code.gs). The same URL
   // serves the live catalogue (GET ?fn=catalog) and receives cart submissions
-  // (POST). EMPTY UNTIL DEPLOYED — paste the /exec URL here after the first
-  // deployment, or the catalogue cannot load.
-  FEED_URL: '',
+  // (POST).
+  FEED_URL: 'https://script.google.com/macros/s/AKfycby7wry_8KHpl7RHcyGEAt5wM_TrF6pAjbOfl2OcxNvIcZSM9bg3YU6IPLfZKQtsWKeI8w/exec',
   API_URL: '',
   API_TOKEN: '',
   CURRENCY: '₹',
