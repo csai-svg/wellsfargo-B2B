@@ -9,9 +9,11 @@ file is only the cold-start fallback.
 Source of truth is the Wells Fargo catalogue sheet:
   https://docs.google.com/spreadsheets/d/1oy_PrlNb4tOH48eOKJBBYaJAEZ0h2FBwWDlcsQwAgjE
 
-The rows below were transcribed from it on 2026-09-25. They are NOT the
-long-term source — apps-script-feed/Code.gs reads the sheet directly. Re-run
-this only to refresh the fallback; do not treat it as the catalogue.
+The rows below were transcribed from it on 2026-09-25; the image URLs were
+refreshed from it on 2026-09-28 after the sheet's Thumbnail URL column moved
+from Drive share links to direct CDN URLs. Rows are NOT the long-term source
+— apps-script-feed/Code.gs reads the sheet directly. Re-run this only to
+refresh the fallback; do not treat it as the catalogue.
 
 NO PRICES. Every product ships moq 0, gst_rate 0, tiers [] and base_price 0,
 matching what Code.gs serves. See the header of that file for why.
@@ -20,56 +22,52 @@ import json, re, os
 
 SHEET = "1oy_PrlNb4tOH48eOKJBBYaJAEZ0h2FBwWDlcsQwAgjE"
 
-# Drive file ids, taken from the sheet's own "Thumbnail URL" column
-# (read 2026-09-25). That column is now populated and is the source of truth;
-# the name-matcher in Code.gs is only consulted for rows it leaves blank.
+# The sheet's "Thumbnail URL" column (read 2026-09-28) no longer holds Drive
+# share links — it was switched over to direct CDN URLs on the
+# deloitte-punchout.companystore.gifts asset host. driveThumb_() in
+# apps-script-feed/Code.gs already passes any non-Drive URL through
+# unchanged, and imgAt() in app.js does the same, so no code change was
+# needed for the feed or the storefront to pick these up — only this
+# snapshot, which hardcoded the old Drive file ids, needed updating.
 #
-# The sheet stores these as `uc?export=view&id=...`. They are written out
-# below as `thumbnail?id=...&sz=w1000`, which is the same file — see
-# driveThumb_() in apps-script-feed/Code.gs for why that form is used.
+# Every row 1-22 now has a URL directly from the sheet (rows 23-24, "SOIL Non
+# Woven Tote Bag" and the Executive Journal gift box, are not yet in ROWS
+# below and are still missing from this snapshot).
 #
-# Rows 1-18 are verbatim from the sheet. Rows 19-22 could NOT be read: the
-# descriptions grew long enough that the sheet reader truncated its response
-# at row 18. Their ids below were resolved by looking the products up by name
-# in the Drive folder and are marked accordingly. Once the Apps Script is
-# deployed the live feed reads all rows directly and supersedes every id here.
+# travelXOXO-Bottle-Carrier-Bag-l.jpg (row 12, Bottle Carrier Bag) 404s in a
+# redirect loop on the CDN — checked 2026-09-28. Kept as the sheet has it;
+# the fix is the file on the CDN, not this snapshot.
 IMG = {
-    # --- rows 1-18, from the sheet's Thumbnail URL column ---
-    "ET-TU Metro Drifit polo - Black":                "1U0MFSnATFfUjB-iEQ3qhwm0IGRzz6JMa",
-    "ET-TU Galactic Drifit polo - Grey":              "1XC0p-eoOWZEFLKzzQzqNXupwHrvKEXnu",
-    # NOTE: the sheet gives rows 3 and 4 the SAME file, and that file is
-    # titled "ET-TU Recycled Full zip classic hoodie - Black" in Drive. So the
-    # Numa Hoodie is currently showing the full-zip hoodie's photo. Kept as
-    # the sheet has it, deliberately, so this fallback and the live feed agree
-    # — the fix is one cell in the sheet, not a patch here.
-    "ET-TU Recycled Numa Hoodie - Black":             "1Uwo1uRdd36a5D9vTPGcjwrM2M9DFPGXW",
-    "ET-TU Recycled Full zip classic hoodie - Black": "1Uwo1uRdd36a5D9vTPGcjwrM2M9DFPGXW",
-    "ET-TU Full Zip Swag Jacket - Black":             "1gmJF62XoPj0GBUQ_OZQixiwI6Bw_Umai",
-    "ET-TU Vector Vest":                              "1Qgwq2zhZSEMz3yqqK69m2uSs3EKRZoWU",
-    "ET-TU Summer Tech Polo Women's":                 "1GfBcXXYdY5gYaggh2cQr7kRF0NNlk1Mk",
-    "travelXOXO ladies Neoprene tote bag":            "14faZA00QTc1cur0i28w0auvtb7oPr2Hh",
-    "travelXOXO Foldable Car Trunk Organiser":        "1c8gGXHeKGimRbcuRGlPCz0UmgkfrFgLx",
-    "travelXOXO Cabin Luggage Harness & Backpack":    "1lPTchpyrbCllTMixML-3-XDXS6OKuh0h",
-    "travelXOXO Expedia Sling":                       "1rhkkZhGPed2SC4K5XjWtHGyXdiVhUiRD",
-    "travelXOXO Bottle Carrier Bag":                  "1sU-RmOLsQWix18k4RMyquhIkKVxTProN",
-    "travelXOXO Saba Sling":                          "1dGcJFJ2qYyLwG68Mi3eSZW7dtA6s3AvB",
-    "travelXOXO Sports Sling":                        "1oCYkKKJYJ794cQ1xRJdeXgvIKiOMBqXH",
-    "travelXOXO Basecamp Duffle Bag 32 Ltr":          "12o2xagpYHkKY4a6qXA90yAEfJBzpbRAH",
-    "Transit backpack":                               "1LPeLDwkFidNKKqjV-JCYIEuqgWf5j8AW",
-    "Fitpack V2":                                     "1xsn_rIetuy9OJrdp1x_6BgeG1zw4aBN4",
-    "Limited Edition Backpack":                       "1v2ZJUWe1Xptk-fBfwJRq5fC5B3tMd39Q",
-    # --- rows 19-22, resolved by name in Drive, NOT read from the sheet ---
-    "Himalayan Tumbler Alternative":                  "11T8zuKaAGa5iWb_x_S91kydo9McIvcn2",
-    "Cascade Mug Alternative":                        "15aBMA9StZD3OVsion6SylNR4h753XGFJ",
-    "OMG Twill Cap":                                  "11ytBwuN_SNF4oHITwW3QFdOMx996T5Gv",
-    "Cork Notebook":                                  "12zRZQVo3L82Tm9tVFm1fzahC5G5T5VNm",
+    "ET-TU Metro Drifit polo - Black":                "Metro-polo-.jpg",
+    "ET-TU Galactic Drifit polo - Grey":              "Galactic-Polo---Moss-Green-Heather-.jpg",
+    "ET-TU Recycled Numa Hoodie - Black":             "Numa-hoodie---Black-Heather-.jpg",
+    "ET-TU Recycled Full zip classic hoodie - Black": "ET-TU_Recycled_Full_zip_classic_hoodie_-_Black.jpg",
+    "ET-TU Full Zip Swag Jacket - Black":             "Swag-black.jpg",
+    "ET-TU Vector Vest":                              "Vector-Vest-.jpg",
+    "ET-TU Summer Tech Polo Women's":                 "summer-tech-polo-w.jpg",
+    "travelXOXO ladies Neoprene tote bag":            "travelXOXO-Neoprene-Everyday-Tote-Bag.jpg",
+    "travelXOXO Foldable Car Trunk Organiser":        "travelXOXO-Car-Trunk-Organiser.jpg",
+    "travelXOXO Cabin Luggage Harness & Backpack":    "travelXOXO_Cabin_Luggage_Harness_Backpack.jpg",
+    "travelXOXO Expedia Sling":                       "travelXOXO-Expedia-Sling.jpg",
+    "travelXOXO Bottle Carrier Bag":                  "travelXOXO-Bottle-Carrier-Bag-l.jpg",
+    "travelXOXO Saba Sling":                          "arthefact-SABA-Sling-Bag--BLACKa.jpg",
+    "travelXOXO Sports Sling":                        "travelXOXO-Sports-Sling.jpg",
+    "travelXOXO Basecamp Duffle Bag 32 Ltr":          "travelXOXO-Base-Camp-Duffle---32-Ltrs.jpg",
+    "Transit backpack":                               "travelXOXO-Transit-Backpack.jpg",
+    "Fitpack V2":                                     "fit-pack.jpg",
+    "Limited Edition Backpack":                       "travelXOXO-Limited-Edition-Backpack.jpg",
+    "Himalayan Tumbler Alternative":                  "HydroMonk-Himalayan-Tumbler-white.jpg",
+    "Cascade Mug Alternative":                        "HydroMonk-Cascade---40-0z-Tumbler.jpg",
+    "OMG Twill Cap":                                  "Twill-Cap---meroon.jpg",
+    "Cork Notebook":                                  "cork.jpg",
 }
 
-# Rows whose id was inferred rather than read, so the output can say so.
-INFERRED = {
-    "Himalayan Tumbler Alternative", "Cascade Mug Alternative",
-    "OMG Twill Cap", "Cork Notebook",
-}
+IMG_BASE = "https://deloitte-punchout.companystore.gifts/media/wysiwyg/wellsfargo/"
+
+# Filenames confirmed broken on the CDN (redirect loop / no image), so the
+# snapshot can say so via image_source rather than silently shipping a dead
+# <img src>.
+BROKEN_IMG = {"travelXOXO Bottle Carrier Bag"}
 
 # (Sr No, Product name, Brand, Style(Gender), Description)
 ROWS = [
@@ -173,7 +171,7 @@ def main():
     products = []
     for sr, name, brand, gender, desc in ROWS:
         cat, sub = classify(name, brand, desc)
-        fid = IMG.get(name, "")
+        fname = IMG.get(name, "")
         products.append({
             "sku": f"WF{sr:04d}",
             "name": name,
@@ -187,8 +185,8 @@ def main():
             # No prices anywhere. See apps-script-feed/Code.gs.
             "moq": 0, "gst_rate": 0, "tiers": [], "base_price": 0,
             "sizes": ["OS"], "has_sizes": False,
-            "image": f"https://drive.google.com/thumbnail?id={fid}&sz=w1000" if fid else "",
-            "image_source": ("drive-lookup" if name in INFERRED else "sheet") if fid else "none",
+            "image": (IMG_BASE + fname) if fname and name not in BROKEN_IMG else "",
+            "image_source": "sheet" if fname and name not in BROKEN_IMG else ("broken" if fname else "none"),
             "active": True, "related": [], "event_tags": [],
             "top_selling": False,
             "sustainable": bool(re.search(r"sustainab|recycled|eco-?friendly|rpet", desc, re.I)),
@@ -196,7 +194,7 @@ def main():
         })
 
     out = {
-        "generated_at": "2026-09-25T00:00:00.000Z",
+        "generated_at": "2026-09-28T00:00:00.000Z",
         "brand": "Wells Fargo",
         "pricing": "hidden",
         "source_sheet": SHEET,
@@ -210,11 +208,10 @@ def main():
         json.dump(out, f, indent=1, ensure_ascii=False)
 
     withimg = sum(1 for p in products if p["image"])
-    from_sheet = sum(1 for p in products if p["image_source"] == "sheet")
-    inferred = sum(1 for p in products if p["image_source"] == "drive-lookup")
-    print(f"wrote {len(products)} products, {withimg} with a photo "
-          f"({from_sheet} from the sheet, {inferred} looked up by name), "
-          f"{len(products) - withimg} without")
+    broken = sum(1 for p in products if p["image_source"] == "broken")
+    print(f"wrote {len(products)} products, {withimg} with a photo, "
+          f"{broken} with a known-broken CDN link, "
+          f"{len(products) - withimg - broken} without")
     seen = {}
     for p in products:
         if p["image"]:
